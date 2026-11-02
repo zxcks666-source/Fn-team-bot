@@ -1,12 +1,13 @@
 # language: python, file: bot.py
-# Fortnite Team Finder. aiogram 3.x + SQLite.
-# Матчинг по фильтрам: режим, ранг, регион, стиль, микрофон, голосовой чат.
+# Fortnite Team Finder. aiogram 3.x + aiohttp + SQLite.
+# Версия для Render (Webhook)
 
 import asyncio
 import logging
 import os
 import sqlite3
 from datetime import datetime, timezone
+from aiohttp import web
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
@@ -14,9 +15,11 @@ from aiogram.types import (
     Message, CallbackQuery,
     InlineKeyboardMarkup, InlineKeyboardButton,
 )
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 DB_PATH = os.getenv("DB_PATH", "fn_teams.db")
+RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")  # Render подставит сам
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("fnbot")
@@ -390,6 +393,8 @@ async def cmd_help(msg: Message):
         "• Матч ищется в реальном времени — как только появляется пара, оба получают уведомление."
     )
 
+# ---------- WEBHOOK & BACKGROUND TASKS ----------
+
 async def queue_scanner():
     """Периодическая проверка очереди на случай упущенных матчей."""
     while True:
@@ -410,10 +415,31 @@ async def queue_scanner():
         except Exception as e:
             log.error("scanner error: %s", e)
 
-async def main():
-    log.info("bot starting")
+async def on_startup(bot: Bot):
+    # Запускаем фоновый сканер
     asyncio.create_task(queue_scanner())
-    await dp.start_polling(bot)
+    
+    if RENDER_EXTERNAL_URL:
+        webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
+        await bot.set_webhook(webhook_url, drop_pending_updates=True)
+        log.info(f"Webhook set to {webhook_url}")
+    else:
+        log.info("No RENDER_EXTERNAL_URL, starting polling...")
+        await bot.delete_webhook(drop_pending_updates=True)
+        asyncio.create_task(dp.start_polling(bot))
+
+def main():
+    app = web.Application()
+    # Регистрируем вебхук
+    SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/webhook")
+    setup_application(app, dp, bot=bot)
+    
+    # Вешаем событие старта
+    app.on_startup.append(on_startup)
+
+    port = int(os.getenv("PORT", 8080))
+    log.info(f"Starting web server on port {port}")
+    web.run_app(app, host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
