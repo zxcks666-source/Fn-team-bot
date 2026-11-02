@@ -2,6 +2,7 @@ services:
   - type: web
     name: fn-team-bot
     runtime: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
     envVars:
