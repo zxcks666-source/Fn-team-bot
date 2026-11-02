@@ -415,7 +415,7 @@ async def queue_scanner():
         except Exception as e:
             log.error("scanner error: %s", e)
 
-async def on_startup(bot: Bot):
+async def on_startup(app: web.Application):
     # Запускаем фоновый сканер
     asyncio.create_task(queue_scanner())
     
